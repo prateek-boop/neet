@@ -363,8 +363,13 @@ def _ocr_pdf(path: str, page_count: int) -> str:
     )
     if _pdf_text_quality(result) < 0.70:
         raise LoaderError("OCR output still failed text-quality validation")
-    cache_path.write_text(result, encoding="utf-8")
-    log.info("  OCR text cache saved: %s", cache_path)
+    try:
+        cache_path.write_text(result, encoding="utf-8")
+        log.info("  OCR text cache saved: %s", cache_path)
+    except OSError as exc:
+        # The source may live on a read-only mount (e.g. Docker bind mount) —
+        # losing the cache is fine, losing the OCR result is not.
+        log.warning("  Could not save OCR cache (%s) — continuing without it.", exc)
     return result
 
 

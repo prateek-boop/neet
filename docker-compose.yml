@@ -1,0 +1,53 @@
+services:
+  ai-teacher:
+    build: .
+    image: ai-teacher-backend:latest
+    restart: unless-stopped
+    # Reaps the pdftoppm/tesseract subprocesses the ingester spawns
+    init: true
+    stop_grace_period: 30s
+    ports:
+      - "8000:8000"
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      EMBED_MODEL: ${EMBED_MODEL:-all-MiniLM-L6-v2}
+      RAG_TOP_K: ${RAG_TOP_K:-8}
+      ENABLE_VISION: ${ENABLE_VISION:-true}
+      QUANTIZE: ${QUANTIZE:-4bit}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-512}
+      DATA_DIR: /app/data
+    volumes:
+      # Generated index (Milvus Lite db, papers, extracted assets) — persists
+      # across `docker compose down` / rebuilds.
+      - ./index_store:/app/index_store
+      # Files uploaded through POST /ingest (rescanned on startup; the hash
+      # cache skips anything unchanged).
+      - ./uploads:/app/uploads
+      # Study material auto-ingested on startup — drop PDFs/CSVs in ./data.
+      - ./data:/app/data:ro
+      # Demo source + its OCR cache (this PDF has broken fonts; without the
+      # cache the first boot re-OCRs ~300 pages).
+      - ./NCERT-Class-12-Chemistry-Part-1.pdf:/app/data/NCERT-Class-12-Chemistry-Part-1.pdf:ro
+      - ./NCERT-Class-12-Chemistry-Part-1.pdf.ocr.txt:/app/data/NCERT-Class-12-Chemistry-Part-1.pdf.ocr.txt:ro
+      # Caches Hugging Face model downloads so they survive container rebuilds
+      # instead of re-downloading multi-GB weights.
+      - hf-cache:/app/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # First boot downloads model weights and ingests ./data — give it room.
+      start_period: 600s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  hf-cache:

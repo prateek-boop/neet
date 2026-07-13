@@ -12,6 +12,11 @@ venv/
 index_store/
 *.ocr.txt
 
+# Runtime dirs used by the Docker deployment
+uploads/
+data/*
+!data/.gitkeep
+
 # Claude Code local files
 .claude/
 

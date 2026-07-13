@@ -46,7 +46,81 @@ NTA-NEET-pattern question papers grounded in it, with a real local LLM.
 
 ---
 
-## 2. Installation
+## 2. Run it with Docker (one command)
+
+The whole project — system deps, Python deps, and a REST API server
+(`server.py`) wrapping `embeddings.py`/`rag.py` — is packaged into a single
+container.
+
+**Requirements on the host:**
+- Docker + [Docker Compose](https://docs.docker.com/compose/) v2
+- An NVIDIA GPU with the
+  [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+  installed (`docker run --rm --gpus all nvidia/cuda:12.6.3-base-ubuntu24.04 nvidia-smi`
+  should print your GPU)
+
+**Start everything:**
+```bash
+docker compose up --build
+```
+
+That builds the image, starts the API on `http://localhost:8000`, and on
+first boot automatically ingests the bundled demo PDF plus any `*.pdf`/`*.csv`
+you drop into `./data/`, then loads the LLM. Model downloads are cached in a
+named volume (`hf-cache`) and the Milvus index/papers persist in
+`./index_store` on the host, so subsequent `docker compose up` runs skip
+re-downloading/re-ingesting unchanged data. To add material later: drop files
+in `./data/` and restart, or upload via `POST /ingest` (no restart needed).
+
+Optional settings — put them in a `.env` file in the project root and
+`docker compose` picks them up automatically:
+```
+HF_TOKEN=hf_...        # Hugging Face token, needed for gated models (gemma)
+ADMIN_TOKEN=...        # enables the answer-key time-lock override (off if unset)
+MAX_UPLOAD_MB=512      # per-file upload cap for POST /ingest
+```
+
+**Check readiness** (model loading can take a few minutes on first run,
+mostly downloading weights):
+```bash
+curl http://localhost:8000/health
+```
+
+**API surface:**
+
+| Endpoint | Purpose |
+|---|---|
+| `GET  /health` | Startup/readiness status, selected model, chunk count |
+| `POST /ingest` | Multipart-upload PDFs/CSVs/JSON FAQs and/or `urls` (comma-separated form field) to index. Returns `{job_id}` |
+| `POST /reload` | Re-read the Milvus collection + rebuild BM25 without re-ingesting |
+| `POST /generate` | Body `{"request": "20 questions on Solid State"}` → `{job_id}` |
+| `POST /generate/fullmock` | Full 4-subject NEET mock → `{job_id}` |
+| `GET  /jobs/{job_id}` | Poll job status (`queued`/`running`/`done`/`failed`) + result |
+| `GET  /papers` | List generated papers |
+| `GET  /papers/{paper_id}` | Paper metadata + content (no answer key) |
+| `GET  /papers/{paper_id}/html` | Self-contained rendered HTML (same file the CLI produces) |
+| `GET  /papers/{paper_id}/answerkey` | `423` while locked, `200` with the key once unlocked. Send header `X-Admin-Token: $ADMIN_TOKEN` to override the lock |
+
+Example:
+```bash
+curl -X POST http://localhost:8000/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"request": "20 questions on Solid State"}'
+# => {"job_id": "a1b2c3d4e5f6"}
+
+curl http://localhost:8000/jobs/a1b2c3d4e5f6
+```
+
+Ingestion/generation are serialized behind a single worker (they share the
+GPU), so only one runs at a time — poll `/jobs/{job_id}` rather than firing
+requests in parallel and expecting them to run concurrently.
+
+No GPU? Edit `docker-compose.yml` and remove the `deploy:` block — it'll
+fall back to CPU per the hardware table above (slow, but works).
+
+---
+
+## 3. Manual (non-Docker) installation
 
 ```bash
 python3 -m venv venv
@@ -63,7 +137,7 @@ HF_TOKEN=hf_...
 
 ---
 
-## 3. Build the index
+## 4. Build the index
 
 Point `embeddings.py` at your source material:
 
@@ -95,7 +169,7 @@ Run `python3 embeddings.py --help` for the full list.
 
 ---
 
-## 4. Generate papers
+## 5. Generate papers
 
 ```bash
 python3 rag.py
@@ -145,7 +219,7 @@ Run `python3 rag.py --help` for the full list.
 
 ---
 
-## 5. How it works
+## 6. How it works
 
 **Ingestion (`embeddings.py`):**
 1. PDF text is extracted natively, falling back to Tesseract OCR when native
@@ -186,7 +260,7 @@ Run `python3 rag.py --help` for the full list.
 
 ---
 
-## 6. Configuration reference
+## 7. Configuration reference
 
 Both scripts read from environment variables (or a `.env` file) as defaults,
 overridable by CLI flags.
@@ -219,7 +293,7 @@ overridable by CLI flags.
 
 ---
 
-## 7. Known limitations
+## 8. Known limitations
 
 Being direct about what this does *not* guarantee:
 

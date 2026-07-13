@@ -1,0 +1,13 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.git/
+.claude/
+index_store/
+uploads/
+data/
+*.pdf
+*.ocr.txt
+.env
+.pytest_cache/

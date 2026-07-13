@@ -1757,12 +1757,22 @@ def _handle_signal(sig: int, _frame: Any) -> None:
 
 def auto_ingest_data(cfg: RAGConfig) -> None:
     """Discovers local PDFs/CSVs and ingests them into the same Milvus collections
-    this pipeline reads from, explicitly passing URI/collection names."""
+    this pipeline reads from, explicitly passing URI/collection names.
+
+    Scans the working dir, $DATA_DIR (default ./data — the Docker mount point for
+    study material), and ./uploads (files POSTed to the API in earlier runs — the
+    incremental hash cache makes re-checking them cheap)."""
     try:
         from embeddings import run_pipeline, PipelineConfig
 
-        pdfs = [str(p) for p in Path(".").glob("*.pdf")]
-        csvs = [str(p) for p in Path(".").glob("*.csv")]
+        scan_dirs, seen = [], set()
+        for d in (Path("."), Path(os.environ.get("DATA_DIR", "data")), Path("uploads")):
+            if d.is_dir() and (r := d.resolve()) not in seen:
+                seen.add(r)
+                scan_dirs.append(d)
+
+        pdfs = [str(p) for d in scan_dirs for p in sorted(d.glob("*.pdf"))]
+        csvs = [str(p) for d in scan_dirs for p in sorted(d.glob("*.csv"))]
 
         if not pdfs and not csvs:
             log.info("No local PDF or CSV files found for auto-ingestion.")
