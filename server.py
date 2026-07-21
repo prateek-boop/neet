@@ -224,9 +224,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AI Teacher — NEET Paper Generator API", lifespan=lifespan)
+# Comma-separated allowlist; defaults to "*" (open) so local/dev is unchanged.
+# Set CORS_ORIGINS="https://app.example.com,https://admin.example.com" to lock down.
+_cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

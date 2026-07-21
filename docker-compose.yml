@@ -12,11 +12,15 @@ services:
       HF_TOKEN: ${HF_TOKEN:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Comma-separated CORS allowlist; "*" is open. Restrict for production.
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
       EMBED_MODEL: ${EMBED_MODEL:-all-MiniLM-L6-v2}
       RAG_TOP_K: ${RAG_TOP_K:-8}
       ENABLE_VISION: ${ENABLE_VISION:-true}
       QUANTIZE: ${QUANTIZE:-4bit}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-512}
+      # Abort OCR if more than this fraction of pages fail (default 5%).
+      OCR_MAX_FAIL_FRAC: ${OCR_MAX_FAIL_FRAC:-0.05}
       DATA_DIR: /app/data
     volumes:
       # Generated index (Milvus Lite db, papers, extracted assets) — persists

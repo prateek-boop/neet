@@ -353,11 +353,33 @@ def _ocr_pdf(path: str, page_count: int) -> str:
     pages: dict[int, str] = {}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(_ocr_pdf_page, path, page): page for page in range(1, page_count + 1)}
+        failed = 0
         for completed, future in enumerate(as_completed(futures), 1):
-            page_number, text = future.result()
-            pages[page_number] = text
+            page = futures[future]
+            try:
+                page_number, text = future.result()
+                pages[page_number] = text
+            except Exception as exc:
+                # One flaky page (render/OCR timeout, transient error) must not
+                # discard a multi-hundred-page run; skip it and let the overall
+                # text-quality gate below decide if too much was lost.
+                failed += 1
+                log.warning("  OCR failed on page %d (%s) — skipping.", page, exc)
             if completed % 20 == 0 or completed == page_count:
                 log.info("  OCR progress: %d/%d pages", completed, page_count)
+    if failed:
+        # Tolerate a few flaky pages, but fail loudly once too many are lost —
+        # a document with large OCR gaps shouldn't be silently indexed.
+        fail_frac = failed / max(page_count, 1)
+        max_frac = float(os.environ.get("OCR_MAX_FAIL_FRAC", "0.05"))
+        summary = f"OCR could not process {failed}/{page_count} pages ({fail_frac:.0%})"
+        if fail_frac > max_frac:
+            raise LoaderError(
+                f"{summary} — exceeds OCR_MAX_FAIL_FRAC={max_frac:.0%}. Aborting "
+                "rather than indexing a document with large gaps."
+            )
+        log.warning("  %s — within OCR_MAX_FAIL_FRAC=%.0f%% tolerance, continuing.",
+                    summary, max_frac * 100)
     result = "\n\n".join(
         f"[Page {page}]\n{pages[page]}" for page in range(1, page_count + 1) if pages.get(page)
     )
@@ -1021,9 +1043,12 @@ def delete_existing_source(
     if not client.has_collection(collection_name):
         return 0
     try:
+        # Escape so a source path containing " or \ can't break out of / alter the
+        # filter expression and purge the wrong (or no) rows.
+        escaped = source.replace("\\", "\\\\").replace('"', '\\"')
         result = client.delete(
             collection_name=collection_name,
-            filter=f'source == "{source}"',
+            filter=f'source == "{escaped}"',
         )
         count = result.get("delete_count", 0) if isinstance(result, dict) else 0
         return count

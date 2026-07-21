@@ -425,7 +425,10 @@ def load_llm(model_id: str, torch_dtype: torch.dtype, cfg: RAGConfig, is_multimo
 
 
 def load_embedding_model() -> SentenceTransformer:
-    model_name = "all-MiniLM-L6-v2"
+    # Must match the model embeddings.py indexed with (same env var, same default);
+    # a mismatch here silently embeds queries into a different space than the stored
+    # vectors, wrecking retrieval. See PipelineConfig.embed_model.
+    model_name = os.environ.get("EMBED_MODEL", "all-MiniLM-L6-v2")
     device = "cuda" if torch.cuda.is_available() else "cpu"
     log.info("Loading embedding model: %s on %s", model_name, device)
     try:
@@ -441,7 +444,9 @@ def load_visual_embedding_model() -> SentenceTransformer:
     """Load CLIP lazily only when a linked visual collection exists."""
     global _visual_embedding_model
     if _visual_embedding_model is None:
-        model_name = "sentence-transformers/clip-ViT-B-32"
+        # Must match embeddings.py's VISUAL_EMBED_MODEL so query-time and index-time
+        # CLIP vectors share an embedding space.
+        model_name = os.environ.get("VISUAL_EMBED_MODEL", "sentence-transformers/clip-ViT-B-32")
         log.info("Loading visual embedding model: %s on cpu", model_name)
         try:
             _visual_embedding_model = SentenceTransformer(model_name, device="cpu")
